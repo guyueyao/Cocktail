@@ -1,0 +1,7 @@
+torch>=2.5.1
+torchvision
+decord
+open_clip_torch
+transformers
+einops
+timm
