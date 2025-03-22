@@ -5,13 +5,16 @@ import numpy as np
 import torch
 from torch.optim import AdamW
 from tqdm import tqdm
-
 import decord
 decord.bridge.set_bridge('torch')
 from torch.utils.data import Dataset, DataLoader
 from dataset import VideoSet,ValSet
 from model_structure import Model
 from utils import Tokenlizer, OverLoss
+
+'''
+For traning the model.
+'''
 
 if __name__ == "__main__":
     device = torch.device('cuda')
@@ -22,7 +25,7 @@ if __name__ == "__main__":
                               persistent_workers=True)
     valloader = DataLoader(val_set, batch_size=2, shuffle=False, num_workers=4, pin_memory=True)
 
-    loss_qp = OverLoss()
+    loss_qp = OverLoss() # The PLCC and Rank loss from FAST-VQA is adopted.
     model= Model().float().to(device)
     tokenizer=Tokenlizer()
 
@@ -47,13 +50,13 @@ if __name__ == "__main__":
             cls=cls.to(torch.int64).to(device).view(-1)
             ids_blip = tokenizer.blip(prmt).to(device)
             ids_clip= tokenizer.clip(prmt).to(device)
-            if epoch <5:
+            if epoch <5: # train adapters、quality network、FCs only for first 5 epoch.
                 qp,cls_p,qp_mix = model.cold_start(frame_384,frame_256,frame_256_f,frames,ids_blip,ids_clip)
                 loss = loss_qp(qp,cls_p,qp_mix,score,cls)
                 loss.backward()
                 optimer_head.step()
                 optimer_head.zero_grad()
-            else:
+            else: # finetune entire model for last 5 epoch
                 qp, cls_p, qp_mix = model(frame_384, frame_256, frame_256_f, frames, ids_blip, ids_clip)
                 loss = loss_qp(qp, cls_p, qp_mix, score, cls)
                 loss.backward()
@@ -68,6 +71,8 @@ if __name__ == "__main__":
             torch.save({'state_dict': model.state_dict(), 'optim_dict':optimer.state_dict()},
                        './modelcache/epoch%d.pth' % (epoch))
 
+            # conduct 5 random tests. Note the final quality prediction for the video was obtained by averaging the results of these
+            # 5 runs.
             model.eval()
             for r in range(5):
                 results={}
@@ -84,6 +89,6 @@ if __name__ == "__main__":
                         ns=ns.view(-1).numpy().astype(int)
                         for i in range(qp_mix.shape[0]):
                             results[ns[i]]=qp_mix[i]
-                with open('./results/ep%d_%d.pkl'%(epoch,r), 'wb') as f:
+                with open('./results/results/ep%d_%d.pkl'%(epoch,r), 'wb') as f:
                     pickle.dump(results, f)
 
